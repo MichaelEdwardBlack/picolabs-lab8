@@ -95,7 +95,7 @@ ruleset com.blacklite.krl.temperature_store {
 
     fired {
       ent:temperature_readings := {};
-      ent:temperautre_violations := {};
+      ent:temperature_violations := {};
     }
   }
 }
