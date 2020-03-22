@@ -98,4 +98,18 @@ ruleset com.blacklite.krl.temperature_store {
       ent:temperature_violations := {};
     }
   }
+  
+  rule report_requested {
+    select when sensor report_requested
+    pre {
+      originatorEci = event:attr("originatorEci");
+      temperatures = temperatures();
+      coid = event:attr("reportId");
+    }
+    event:send({
+      "eci": originatorEci, "eid": "sensor_report",
+      "domain": "report", "type": "delivered", 
+      "attrs": { "reportId": coid, "report": temperatures, "sensorEci": meta:eci }
+    })
+  }
 }
