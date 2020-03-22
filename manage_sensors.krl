@@ -75,7 +75,7 @@ ruleset com.blacklite.krl.manage_sensors {
  rule child_sensor_auto_subscribe {
    select when wrangler child_initialized
    pre {
-     is_sensor = (event:attrs{["rs_attrs", "type"]} == "sensor")
+     is_sensor = (event:attrs{"type"} == "sensor")
      sensor_name = event:attr("name")
      sensor_eci = event:attr("eci")
    }
