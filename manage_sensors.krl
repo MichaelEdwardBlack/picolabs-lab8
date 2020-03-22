@@ -1,6 +1,6 @@
 ruleset com.blacklite.krl.manage_sensors {
  meta {
-   shares __testing, showChildren, sensors, temperatures, getSensorNameFromTx
+   shares __testing, showChildren, sensors, temperatures, getSensorNameFromTx, report
 
    use module io.picolabs.wrangler alias wrangler
    use module io.picolabs.subscription alias subscription
@@ -10,12 +10,14 @@ ruleset com.blacklite.krl.manage_sensors {
      [ { "name": "__testing" }
      , { "name": "showChildren" }
      , { "name": "sensors" }
-     , { "name": "temperatures" }
+    // , { "name": "temperatures" }
+     , { "name": "report" }
      , { "name": "getSensorNameFromTx", "args": ["Tx"] }
      ] , "events":
      [ { "domain": "sensor", "type": "new_sensor", "attrs": [ "name" ] }
      , { "domain": "sensor", "type": "unneeded_sensor", "attrs": [ "name" ] }
      , { "domain": "sensor", "type": "subscribe", "attrs": [ "name", "eci"] }
+     , { "domain": "sensor", "type": "report_requested" }
      ]
    }
 
@@ -29,23 +31,37 @@ ruleset com.blacklite.krl.manage_sensors {
      });
      sensor_subscriptions
    }
+   
+   getSensorFromTx = function(Tx) {
+     subscription:established().filter(function(x) {
+       x{"Tx"} == Tx
+     })[0]
+   }
 
    getSensorNameFromTx = function(Tx) {
      ent:sensors.filter(function(v,k) {
        v == Tx
      }).keys().decode()
    }
-
-   temperatures = function(child) {
-     sensors().map(function(x) {
-       eci = x.get("Tx");
-       url = "http://localhost:8080/sky/cloud/" + eci + "/com.blacklite.krl.temperature_store/temperatures";
-       response = http:get(url);
-       sensor_name = getSensorNameFromTx(eci);
-       temperatures = response{"content"}.decode();
-       {}.put(sensor_name, temperatures)
+   
+   report = function() {
+     sortedKeys = ent:report.keys().sort("reverse")
+     last5 = sortedKeys.length() > 5 => sortedKeys.slice(0,4) | sortedKeys
+     ent:report.filter(function(v,k) {
+       last5.any(function(x) { x == k})
      })
    }
+
+  // temperatures = function(child) {
+  //   sensors().map(function(x) {
+  //     eci = x.get("Tx");
+  //     url = "http://localhost:8080/sky/cloud/" + eci + "/com.blacklite.krl.temperature_store/temperatures";
+  //     response = http:get(url);
+  //     sensor_name = getSensorNameFromTx(eci);
+  //     temperatures = response{"content"}.decode();
+  //     {}.put(sensor_name, temperatures)
+  //   })
+  // }
  }
 
  rule add_sensor {
@@ -167,4 +183,48 @@ ruleset com.blacklite.krl.manage_sensors {
      ent:sensors := ent:sensors.delete([sensor_name])
    }
  }
+ 
+ rule create_report_id {
+   select when sensor report_requested 
+   pre {
+     coid = time:now();
+   }
+   fired {
+     raise report event "requested" attributes { "coid": coid }
+   }
+ }
+ rule request_temperature_report {
+   select when report requested
+   foreach sensors() setting (sensor)
+   pre {
+     eci = sensor{"Tx"};
+     originatorEci = sensor{"Rx"};
+     coid = event:attr("coid")
+   }
+   event:send({
+     "eci": eci, "eid": "temperature_report",
+     "domain": "sensor", "type": "report_requested",
+     "attrs": { "reportId": coid, "originatorEci" : originatorEci }
+   })
+   fired {
+     
+   }
+ }
+ 
+ rule collect_temperature_report {
+   select when report delivered
+   pre {
+     report = event:attr("report");
+     sensor = getSensorFromTx(event:attr("sensorEci"));
+     coid = event:attr("reportId");
+   }
+   if (coid && report && sensor) then noop()
+   fired {
+     ent:report{[coid, sensor{"Id"}]} := report
+     ent:report{[coid, "count"]} := ent:report{[coid, "count"]}.defaultsTo(0) + 1
+     ent:report{[coid, "time_of_report"]} := time:strftime(coid, "%c")
+   }
+ }
 }
+
+
